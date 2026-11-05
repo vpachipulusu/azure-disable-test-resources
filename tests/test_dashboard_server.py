@@ -1,5 +1,8 @@
 import asyncio
 import os
+import socket
+
+import pytest
 
 from weekend_saver.arm import parse_resource_id
 from weekend_saver.config import load_resource_specs
@@ -13,6 +16,7 @@ from weekend_saver.dashboard.demo import (
     demo_handlers,
 )
 from weekend_saver.dashboard.server import build_services, serve
+from weekend_saver.errors import ConfigError
 from weekend_saver.files import default_data_dir, ensure_private_dir
 from weekend_saver.models import Action, PowerState
 
@@ -108,6 +112,21 @@ async def test_a_scheduled_action_that_never_ran_is_recorded_and_alerted(tmp_pat
     assert latest["error"] == "Missed the scheduled enable"
     assert alerts[0].failed
     assert alerts[0].error == "Missed the scheduled enable"
+
+
+def test_serve_refuses_a_port_that_is_taken_before_printing_a_link(tmp_path, monkeypatch, capsys):
+    started = []
+    monkeypatch.setattr(server.uvicorn, "run", lambda app, **options: started.append(options))
+    services = build_services(data_dir=tmp_path, demo=True)
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied:
+        occupied.bind(("127.0.0.1", 0))
+        taken_port = occupied.getsockname()[1]
+        with pytest.raises(ConfigError, match=f"Port {taken_port} is already in use"):
+            serve(services, port=taken_port, open_browser=True)
+
+    assert started == []
+    assert "token=" not in capsys.readouterr().out
 
 
 def test_default_data_folder_is_per_user_not_the_project(tmp_path, monkeypatch):

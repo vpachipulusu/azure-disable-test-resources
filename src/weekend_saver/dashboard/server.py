@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import secrets
+import socket
 import sys
 import tempfile
 import threading
@@ -23,6 +24,7 @@ from weekend_saver.dashboard.history import RunHistory
 from weekend_saver.dashboard.run_manager import RunManager
 from weekend_saver.dashboard.scheduler import Scheduler, ScheduleStore
 from weekend_saver.discovery import AzureDiscovery
+from weekend_saver.errors import ConfigError
 from weekend_saver.executors import DEFAULT_VERIFY_INTERVAL_SECONDS
 from weekend_saver.files import ensure_private_dir
 from weekend_saver.models import Action, RunReport, RunRequest, RunStatus
@@ -142,8 +144,22 @@ def _log_failed_alert(alert: "asyncio.Task[None]") -> None:
         logger.error("Could not send a scheduler alert", exc_info=alert.exception())
 
 
+def _require_free_port(port: int) -> None:
+    # Checked before the link is printed or a browser opens: otherwise the link would lead
+    # to whatever already owns the port, which rejects it.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        try:
+            probe.bind((LOOPBACK, port))
+        except OSError as exc:
+            raise ConfigError(
+                f"Port {port} is already in use, probably by another weekend-saver dashboard. "
+                "Close that one, or choose another port with --port."
+            ) from exc
+
+
 def serve(services: DashboardServices, *, port: int, open_browser: bool) -> None:
     """Serve until interrupted. The printed link works once and sets the session cookie."""
+    _require_free_port(port)
     code = secrets.token_urlsafe(32)
     url = f"http://{LOOPBACK}:{port}/?token={code}"
     sys.stdout.write(f"weekend-saver dashboard: {url}\n(the link works once; Ctrl+C to stop)\n")
