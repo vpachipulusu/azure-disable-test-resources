@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+*.egg-info/
+
+# Runtime data: prior-state snapshots and workflow checkpoints (pickle; keep private)
+.weekend-saver/
+
+# Local resource lists may contain subscription IDs
+resources.yaml
+.env

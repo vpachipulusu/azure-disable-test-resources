@@ -1,0 +1,37 @@
+{
+  "Name": "Weekend Saver Operator",
+  "IsCustom": true,
+  "Description": "Read power state and start/stop the resource types weekend-saver supports. Nothing else.",
+  "Actions": [
+    "Microsoft.Compute/virtualMachines/read",
+    "Microsoft.Compute/virtualMachines/instanceView/read",
+    "Microsoft.Compute/virtualMachines/deallocate/action",
+    "Microsoft.Compute/virtualMachines/start/action",
+    "Microsoft.Compute/virtualMachineScaleSets/read",
+    "Microsoft.Compute/virtualMachineScaleSets/virtualMachines/read",
+    "Microsoft.Compute/virtualMachineScaleSets/virtualMachines/instanceView/read",
+    "Microsoft.Compute/virtualMachineScaleSets/deallocate/action",
+    "Microsoft.Compute/virtualMachineScaleSets/start/action",
+    "Microsoft.ContainerService/managedClusters/read",
+    "Microsoft.ContainerService/managedClusters/stop/action",
+    "Microsoft.ContainerService/managedClusters/start/action",
+    "Microsoft.Web/sites/read",
+    "Microsoft.Web/sites/stop/action",
+    "Microsoft.Web/sites/start/action",
+    "Microsoft.DBforPostgreSQL/flexibleServers/read",
+    "Microsoft.DBforPostgreSQL/flexibleServers/stop/action",
+    "Microsoft.DBforPostgreSQL/flexibleServers/start/action",
+    "Microsoft.DBforMySQL/flexibleServers/read",
+    "Microsoft.DBforMySQL/flexibleServers/stop/action",
+    "Microsoft.DBforMySQL/flexibleServers/start/action",
+    "Microsoft.Network/applicationGateways/read",
+    "Microsoft.Network/applicationGateways/stop/action",
+    "Microsoft.Network/applicationGateways/start/action"
+  ],
+  "NotActions": [],
+  "DataActions": [],
+  "NotDataActions": [],
+  "AssignableScopes": [
+    "/subscriptions/<SUBSCRIPTION_ID>"
+  ]
+}

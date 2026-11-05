@@ -1,0 +1,15 @@
+# Copy to resources.yaml (git-ignored) and list the resources weekend-saver may touch.
+# Nothing outside this list is ever stopped or started.
+#
+# order (optional, default 0): lower numbers are disabled FIRST and enabled LAST.
+# Give dependencies a higher number than the things that depend on them.
+resources:
+  # Bare ID, order 0
+  - /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Web/sites/test-api
+
+  - id: /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Compute/virtualMachines/test-worker
+    order: 0
+
+  # Stopped after the app above, started before it
+  - id: /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.DBforPostgreSQL/flexibleServers/test-db
+    order: 10
