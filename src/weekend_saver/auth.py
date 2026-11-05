@@ -89,7 +89,9 @@ class SignedInCredential:
             return SignInStatus(signed_in=False)
         claims = _unverified_claims(token.token)
         account = next((claims[name] for name in _ACCOUNT_CLAIMS if claims.get(name)), "")
-        return SignInStatus(True, str(account), str(claims.get("tid", "")), source)
+        # Personal Microsoft accounts arrive as "live.com#name@example.com"
+        display_name = str(account).rsplit("#", 1)[-1]
+        return SignInStatus(True, display_name, str(claims.get("tid", "")), source)
 
     def login(self) -> SignInStatus:
         """Open a browser sign-in and remember the account for later silent use."""

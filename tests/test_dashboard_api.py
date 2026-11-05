@@ -164,6 +164,15 @@ def test_cli_link_swaps_the_token_for_a_cookie_and_serves_the_page(dashboard):
     assert SESSION in cookie
 
 
+def test_stylesheet_lets_the_hidden_attribute_win(client):
+    # The demo badge and sign-in button are hidden with the attribute; without this rule
+    # their classes' `display` would keep them on screen (the badge showed in real mode).
+    stylesheet = client.get("/static/styles.css").text
+
+    assert "[hidden]" in stylesheet
+    assert "display: none !important" in stylesheet
+
+
 def test_cli_link_works_only_once(dashboard):
     with TestClient(dashboard.app, base_url=BASE_URL, follow_redirects=False) as first:
         assert first.get(f"/?token={TOKEN}").status_code == 303

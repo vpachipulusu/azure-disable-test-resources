@@ -105,6 +105,12 @@ def test_status_reports_account_and_tenant_from_the_token(tmp_path):
     )
 
 
+def test_status_drops_the_identity_provider_prefix_of_personal_accounts(tmp_path):
+    signed_in, _ = credential(tmp_path, token("live.com#me@hotmail.com"))
+
+    assert signed_in.status().account == "me@hotmail.com"
+
+
 def test_status_says_not_signed_in_instead_of_raising(tmp_path):
     signed_in, _ = credential(tmp_path, CredentialUnavailableError("no az"))
 
