@@ -69,6 +69,25 @@ DEMO_RESOURCES: tuple[DiscoveredResource, ...] = tuple(
     for scope, provider_type, name, _, tags, _ in _CATALOGUE
 )
 
+# Things a real subscription also contains but weekend-saver cannot stop and start
+DEMO_UNSUPPORTED: tuple[DiscoveredResource, ...] = tuple(
+    DiscoveredResource(
+        resource_id=_resource_id(scope, provider_type, name),
+        name=name,
+        resource_type=provider_type.lower(),
+        resource_group=scope[2],
+        subscription_id=scope[0],
+        subscription_name=scope[1],
+        location="westeurope",
+        supported=False,
+    )
+    for scope, provider_type, name in (
+        (_DEV, "Microsoft.Storage/storageAccounts", "shopdevstorage"),
+        (_DEV, "Microsoft.KeyVault/vaults", "shop-kv-dev"),
+        (_QA, "Microsoft.CognitiveServices/accounts", "shop-openai-qa"),
+    )
+)
+
 DEMO_SELECTION: tuple[ResourceSpec, ...] = tuple(
     ResourceSpec(_resource_id(scope, provider_type, name), order)
     for scope, provider_type, name, _, _, order in _CATALOGUE
@@ -125,4 +144,4 @@ class DemoAuth:
 
 class DemoDiscovery:
     async def list(self) -> tuple[DiscoveredResource, ...]:
-        return DEMO_RESOURCES
+        return (*DEMO_RESOURCES, *DEMO_UNSUPPORTED)

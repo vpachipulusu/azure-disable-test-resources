@@ -443,12 +443,32 @@ async function loadResources() {
 
 // ---------- resource picker ----------
 
+// Selectable rows; unsupported resources are shown greyed out and tracked separately
 let pickerRows = [];
+let pickerGreyedRows = [];
 let managedWhenPickerOpened = 0;
 
 function updatePickerCount() {
   const selected = pickerRows.filter((row) => row.checkbox.checked).length;
-  $("picker-count").textContent = `${selected} of ${pickerRows.length} selected · lower order is disabled first and enabled last`;
+  const greyed = pickerGreyedRows.length
+    ? ` · ${pickerGreyedRows.length} greyed out cannot be stopped and started`
+    : "";
+  $("picker-count").textContent = pickerRows.length
+    ? `${selected} of ${pickerRows.length} selected · lower order is disabled first and enabled last${greyed}`
+    : "Nothing here can be stopped and started by weekend-saver.";
+}
+
+function greyedPickerRow(resource, group) {
+  const checkbox = el("input", { type: "checkbox", disabled: true, "aria-label": `${resource.name} is not supported` });
+  const node = el(
+    "div",
+    { class: "picker-row picker-row-unsupported", title: "weekend-saver has no way to stop and start this type" },
+    checkbox,
+    el("span", { class: "cell-name", text: resource.name }, el("span", { class: "cell-sub", text: typeLabel(resource.resource_type) })),
+    el("span", { class: "hint", text: resource.location }),
+    el("span", { class: "hint", text: "not supported" })
+  );
+  return { node, haystack: `${resource.name} ${group} ${resource.resource_type}`.toLowerCase() };
 }
 
 function setPickerReady(ready) {
@@ -458,13 +478,16 @@ function setPickerReady(ready) {
 
 function filterPicker() {
   const needle = $("picker-search").value.trim().toLowerCase();
-  for (const row of pickerRows) row.node.hidden = Boolean(needle) && !row.haystack.includes(needle);
+  for (const row of [...pickerRows, ...pickerGreyedRows]) {
+    row.node.hidden = Boolean(needle) && !row.haystack.includes(needle);
+  }
 }
 
 async function openPicker() {
   const body = $("picker-body");
   $("picker-search").value = "";
   pickerRows = [];
+  pickerGreyedRows = [];
   setPickerReady(false);
   body.replaceChildren(emptyState("Looking up the resources your account can see…"));
   $("picker-count").textContent = "";
@@ -478,12 +501,13 @@ async function openPicker() {
   }
   if (!found.length) {
     body.replaceChildren(
-      emptyState("No supported resources were found in the subscriptions this account can see.")
+      emptyState("No resources were found in the subscriptions this account can see.")
     );
     return;
   }
   managedWhenPickerOpened = found.filter((resource) => resource.managed).length;
-  setPickerReady(true);
+  // With nothing selectable there is nothing to save
+  setPickerReady(found.some((resource) => resource.supported));
   body.replaceChildren();
   let currentGroup = "";
   for (const resource of found) {
@@ -493,6 +517,12 @@ async function openPicker() {
     if (group !== currentGroup) {
       body.append(el("div", { class: "picker-group", text: group }));
       currentGroup = group;
+    }
+    if (!resource.supported) {
+      const greyed = greyedPickerRow(resource, group);
+      body.append(greyed.node);
+      pickerGreyedRows.push(greyed);
+      continue;
     }
     const checkbox = el("input", { type: "checkbox", "aria-label": `Manage ${resource.name}` });
     checkbox.checked = resource.managed;

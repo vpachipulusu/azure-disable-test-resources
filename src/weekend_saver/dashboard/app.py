@@ -408,6 +408,15 @@ def _picker_rows(
         }
         for resource in found
     ]
+    # Keep each resource group together, selectable resources before greyed-out ones
+    rows.sort(
+        key=lambda row: (
+            row["subscription_name"].lower(),
+            row["resource_group"].lower(),
+            not row["supported"],
+            row["name"].lower(),
+        )
+    )
     discovered = {resource.resource_id.lower() for resource in found}
     rows.extend(_missing_row(spec) for key, spec in managed.items() if key not in discovered)
     return rows
@@ -423,6 +432,7 @@ def _missing_row(spec: ResourceSpec) -> dict[str, Any]:
         "subscription_name": "Not found right now",
         "location": "",
         "tags": {},
+        "supported": True,
         "managed": True,
         "order": spec.order,
         "found": False,

@@ -699,6 +699,16 @@ tbody tr:last-child td {
   width: 64px;
 }
 
+.picker-row-unsupported {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  cursor: not-allowed;
+  white-space: nowrap;
+}
+
+.picker-row-unsupported > * {
+  opacity: 0.5;
+}
+
 .picker-row[hidden] {
   display: none;
 }

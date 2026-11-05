@@ -40,7 +40,11 @@ async def test_demo_catalogue_is_consistent():
     handlers = demo_handlers(DemoHandler(read_delay_seconds=0, change_delay_seconds=0))
     discovered = await DemoDiscovery().list()
 
+    unsupported = [resource for resource in discovered if not resource.supported]
+    discovered = tuple(resource for resource in discovered if resource.supported)
     assert discovered == DEMO_RESOURCES
+    assert unsupported
+    assert all(resource.resource_type not in handlers for resource in unsupported)
     assert DemoAuth().login().signed_in
     for resource in discovered:
         target = parse_resource_id(resource.resource_id)

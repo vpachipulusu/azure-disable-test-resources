@@ -55,12 +55,24 @@ class FakeAuth:
 
 class FakeDiscovery:
     async def list(self) -> tuple[DiscoveredResource, ...]:
-        return tuple(
+        manageable = [
             DiscoveredResource(
                 vm_id(name), name, VM_TYPE, "rg-test", SUBSCRIPTION_ID, "Test Sub", "westeurope"
             )
             for name in ("app", "db", "other")
+        ]
+        not_manageable = DiscoveredResource(
+            f"/subscriptions/{SUBSCRIPTION_ID}/resourceGroups/rg-test"
+            "/providers/Microsoft.CognitiveServices/accounts/my-openai",
+            "my-openai",
+            "microsoft.cognitiveservices/accounts",
+            "rg-test",
+            SUBSCRIPTION_ID,
+            "Test Sub",
+            "uksouth",
+            supported=False,
         )
+        return (*manageable, not_manageable)
 
 
 class Dashboard:
@@ -283,6 +295,19 @@ def test_discovery_marks_which_resources_are_already_managed(client, dashboard):
     assert found["app"]["found"] is True
     assert found["db"]["managed"] is False
     assert found["app"]["subscription_name"] == "Test Sub"
+    assert found["app"]["supported"] is True
+
+
+def test_discovery_lists_resources_it_cannot_manage_as_unsupported(client):
+    listed = data(client.get("/api/discovery"))
+    found = {resource["name"]: resource for resource in listed}
+
+    # Same resource group: selectable ones first by name, the greyed-out one last
+    assert [resource["name"] for resource in listed] == ["app", "db", "other", "my-openai"]
+
+    assert found["my-openai"]["supported"] is False
+    assert found["my-openai"]["managed"] is False
+    assert found["my-openai"]["resource_type"] == "microsoft.cognitiveservices/accounts"
 
 
 def test_discovery_keeps_managed_resources_it_could_not_find(client, dashboard):

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from tests.helpers import SUBSCRIPTION_ID, VM_TYPE, vm_id
-from weekend_saver.discovery import AzureDiscovery, build_resource_query, discover_resources
+from weekend_saver.discovery import RESOURCES_QUERY, AzureDiscovery, discover_resources
 
 TYPES = frozenset({VM_TYPE, "microsoft.web/sites"})
 
@@ -43,17 +43,29 @@ class FakeGraphClient:
 SUBSCRIPTIONS = [{"subscriptionId": SUBSCRIPTION_ID, "name": "Test Subscription"}]
 
 
-def test_query_filters_to_the_supported_types():
-    query = build_resource_query(TYPES)
+def test_unsupported_resources_are_listed_and_flagged_not_dropped():
+    ai_account = row(
+        "my-openai",
+        id=f"/subscriptions/{SUBSCRIPTION_ID}/resourceGroups/rg-test"
+        "/providers/Microsoft.CognitiveServices/accounts/my-openai",
+        type="Microsoft.CognitiveServices/accounts",
+    )
+    client = FakeGraphClient([[row("vm-a"), ai_account]], SUBSCRIPTIONS)
 
-    assert "'microsoft.compute/virtualmachines'" in query
-    assert "'microsoft.web/sites'" in query
-    assert "type in~" in query
+    found = {resource.name: resource for resource in discover_resources(client, TYPES)}
+
+    assert found["vm-a"].supported is True
+    assert found["my-openai"].supported is False
+    assert found["my-openai"].resource_type == "microsoft.cognitiveservices/accounts"
 
 
-def test_query_refuses_a_type_that_could_break_out_of_the_filter():
-    with pytest.raises(ValueError, match="resource type"):
-        build_resource_query({"x') | project secrets //"})
+def test_the_resource_query_is_a_constant_with_nothing_spliced_in():
+    client = FakeGraphClient([[row("vm-a")]], SUBSCRIPTIONS)
+
+    discover_resources(client, TYPES)
+
+    assert client.requests[0].query == RESOURCES_QUERY
+    assert "where" not in RESOURCES_QUERY
 
 
 def test_discovery_follows_paging_and_names_subscriptions():
@@ -93,7 +105,7 @@ def test_discovery_stops_if_azure_never_finishes_paging():
 async def test_azure_discovery_runs_the_query_off_the_event_loop():
     client = FakeGraphClient([[row("vm-a")]], SUBSCRIPTIONS)
     discovery = AzureDiscovery(
-        credential=object(), resource_types=TYPES, client_factory=lambda _: client
+        credential=object(), supported_types=TYPES, client_factory=lambda _: client
     )
 
     found = await discovery.list()
