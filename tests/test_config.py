@@ -1,7 +1,7 @@
 import pytest
 
 from tests.helpers import vm_id
-from weekend_saver.config import load_resource_specs
+from weekend_saver.config import load_resource_specs, save_resource_specs
 from weekend_saver.errors import ConfigError
 from weekend_saver.models import ResourceSpec
 
@@ -21,6 +21,16 @@ def test_loads_bare_string_and_mapping_entries(tmp_path):
     loaded = load_resource_specs(path)
 
     assert loaded == (ResourceSpec(vm_id("app"), 0), ResourceSpec(vm_id("db"), 10))
+
+
+def test_saved_selection_loads_back_unchanged(tmp_path):
+    path = tmp_path / "nested" / "resources.yaml"
+    selection = (ResourceSpec(vm_id("app"), 0), ResourceSpec(vm_id("db"), 10))
+
+    save_resource_specs(path, selection)
+
+    assert load_resource_specs(path) == selection
+    assert [entry.name for entry in path.parent.iterdir()] == ["resources.yaml"]
 
 
 def test_raises_when_file_is_missing(tmp_path):

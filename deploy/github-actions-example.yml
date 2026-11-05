@@ -73,7 +73,8 @@ jobs:
             enable | "0 6 * * 1") action=enable ;;
             *) echo "Cannot tell which action to run for '${MANUAL_ACTION:-$SCHEDULE}'" >&2; exit 2 ;;
           esac
-          flags=(--resources resources.yaml --yes)
+          # The state file is kept in the workspace so the cache steps can carry it over
+          flags=(--resources resources.yaml --state-file .weekend-saver/state.json --yes)
           if [ "$action" = enable ] && [ "$IGNORE_PRIOR_STATE" = true ]; then
             flags+=(--ignore-prior-state)
           fi

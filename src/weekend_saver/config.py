@@ -8,12 +8,14 @@ Expected shape:
         order: 10
 """
 
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from weekend_saver.errors import ConfigError
+from weekend_saver.files import write_text_atomically
 from weekend_saver.models import ResourceSpec
 
 
@@ -33,6 +35,18 @@ def load_resource_specs(path: Path) -> tuple[ResourceSpec, ...]:
     if not isinstance(document, dict) or not isinstance(document.get("resources"), list):
         raise ConfigError(f"{path} must contain a top-level 'resources' list.")
     return tuple(_to_spec(entry, path) for entry in document["resources"])
+
+
+def save_resource_specs(path: Path, specs: Iterable[ResourceSpec]) -> None:
+    """Write the selection in the shape `load_resource_specs` reads. Comments are not kept."""
+    document = {"resources": [{"id": spec.resource_id, "order": spec.order} for spec in specs]}
+    header = (
+        "# Managed by the weekend-saver dashboard. Lower order = disabled first, enabled last.\n"
+    )
+    try:
+        write_text_atomically(path, header + yaml.safe_dump(document, sort_keys=False))
+    except OSError as exc:
+        raise ConfigError(f"Could not write resource file {path}: {exc}") from exc
 
 
 def _to_spec(entry: Any, path: Path) -> ResourceSpec:

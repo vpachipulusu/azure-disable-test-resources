@@ -7,14 +7,13 @@ File format:
 """
 
 import json
-import os
-import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
 from weekend_saver.errors import StateStoreError
+from weekend_saver.files import write_text_atomically
 
 _FORMAT_VERSION = 1
 
@@ -65,22 +64,9 @@ class JsonFileStateStore:
             indent=2,
         )
         try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._replace_atomically(payload)
+            write_text_atomically(self._path, payload)
         except OSError as exc:
             raise StateStoreError(f"Could not write state file {self._path}: {exc}") from exc
-
-    def _replace_atomically(self, payload: str) -> None:
-        # A crash mid-write must not leave a truncated snapshot behind. mkstemp gives an
-        # exclusive, owner-only file, so a pre-planted temp path cannot redirect the write.
-        descriptor, temporary = tempfile.mkstemp(dir=self._path.parent, suffix=".tmp")
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                handle.write(payload)
-            os.replace(temporary, self._path)
-        except OSError:
-            Path(temporary).unlink(missing_ok=True)
-            raise
 
     def _validated(self, document: object) -> Snapshot:
         if not isinstance(document, dict) or document.get("version") != _FORMAT_VERSION:

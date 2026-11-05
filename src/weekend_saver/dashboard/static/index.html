@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>weekend-saver</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        weekend-saver
+        <span id="demo-badge" class="badge badge-demo" hidden>demo data</span>
+      </div>
+      <div id="next-run" class="next-run"></div>
+      <div class="account">
+        <span id="account-name" class="account-name">Checking sign-in…</span>
+        <button id="sign-in" class="button" hidden>Sign in</button>
+      </div>
+    </header>
+
+    <div id="notices" class="notices" role="status"></div>
+
+    <main class="layout">
+      <section class="panel pipeline" aria-labelledby="pipeline-title">
+        <div class="panel-head">
+          <h2 id="pipeline-title">Workflow</h2>
+          <p id="run-status" class="run-status" aria-live="polite">Idle</p>
+        </div>
+        <div class="graph-scroll">
+          <svg id="graph" class="graph" role="img" aria-label="Workflow steps and their status"></svg>
+        </div>
+      </section>
+
+      <section class="panel resources" aria-labelledby="resources-title">
+        <div class="panel-head">
+          <h2 id="resources-title">Managed resources <span id="resource-count" class="count"></span></h2>
+          <div class="head-actions">
+            <button id="refresh" class="button button-quiet">Refresh</button>
+            <button id="manage" class="button">Manage resources</button>
+          </div>
+        </div>
+
+        <div class="run-bar">
+          <button id="run-disable" class="button button-primary">Disable</button>
+          <button id="run-enable" class="button button-primary">Enable</button>
+          <label class="check"><input id="dry-run" type="checkbox" /> Preview only</label>
+          <details class="advanced">
+            <summary>Advanced</summary>
+            <label class="check">
+              <input id="ignore-prior-state" type="checkbox" />
+              Enable every stopped resource, not only the ones weekend-saver disabled
+            </label>
+          </details>
+        </div>
+
+        <div id="resources-body" class="table-wrap"></div>
+      </section>
+
+      <aside class="side">
+        <section class="panel" aria-labelledby="schedule-title">
+          <div class="panel-head">
+            <h2 id="schedule-title">Schedule</h2>
+            <label class="check"><input id="schedule-enabled" type="checkbox" /> On</label>
+          </div>
+          <form id="schedule-form" class="schedule-form">
+            <div class="schedule-row">
+              <span class="schedule-label">Disable</span>
+              <select id="disable-weekday" aria-label="Disable weekday"></select>
+              <input id="disable-time" type="time" aria-label="Disable time" required />
+            </div>
+            <div class="schedule-row">
+              <span class="schedule-label">Enable</span>
+              <select id="enable-weekday" aria-label="Enable weekday"></select>
+              <input id="enable-time" type="time" aria-label="Enable time" required />
+            </div>
+            <div class="schedule-foot">
+              <p class="hint">Runs only while this dashboard is open and the PC is awake.</p>
+              <button class="button" type="submit">Save</button>
+            </div>
+            <p id="schedule-message" class="form-message" role="status"></p>
+          </form>
+        </section>
+
+        <section class="panel" aria-labelledby="history-title">
+          <div class="panel-head"><h2 id="history-title">Recent runs</h2></div>
+          <ul id="history" class="history"></ul>
+        </section>
+      </aside>
+    </main>
+
+    <dialog id="plan-dialog" class="dialog" aria-labelledby="plan-title">
+      <h2 id="plan-title"></h2>
+      <p id="plan-summary" class="dialog-summary"></p>
+      <div id="plan-body" class="table-wrap dialog-table"></div>
+      <div id="plan-actions" class="dialog-actions"></div>
+    </dialog>
+
+    <dialog id="picker-dialog" class="dialog dialog-wide" aria-labelledby="picker-title">
+      <h2 id="picker-title">Choose resources to manage</h2>
+      <input id="picker-search" class="search" type="search" placeholder="Filter by name, group or type" aria-label="Filter resources" />
+      <div id="picker-body" class="picker-body"></div>
+      <div class="dialog-actions">
+        <span id="picker-count" class="hint"></span>
+        <button id="picker-cancel" class="button button-quiet">Cancel</button>
+        <button id="picker-save" class="button button-primary">Save selection</button>
+      </div>
+    </dialog>
+
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>

@@ -1,9 +1,11 @@
 import builtins
+from typing import ClassVar
 
 import pytest
 
 from tests.helpers import VM_TYPE, FakeHandler, vm_id
 from weekend_saver import cli
+from weekend_saver.auth import SignInStatus
 from weekend_saver.models import PowerState
 
 RUNNING, STOPPED = PowerState.RUNNING, PowerState.STOPPED
@@ -204,23 +206,34 @@ def test_unexpected_error_gives_exit_code_one(resources, state_file, monkeypatch
     assert code == cli.EXIT_FAILED
 
 
-def test_real_run_builds_azure_handlers_from_default_credential(resources, state_file, monkeypatch):
-    handler = FakeHandler({"app": RUNNING})
-    used = []
-
+def fake_credential(signed_in: bool, login_error: Exception | None = None):
     class FakeCredential:
-        def __enter__(self):
-            return self
+        built_with: ClassVar[list[dict]] = []
 
-        def __exit__(self, *exc_info):
-            used.append("closed")
-            return False
+        def __init__(self, record_path, **options) -> None:
+            self.record_path = record_path
+            self.built_with.append(options)
+
+        def status(self) -> SignInStatus:
+            return SignInStatus(signed_in, "me@example.com" if signed_in else "")
+
+        def login(self) -> SignInStatus:
+            if login_error:
+                raise login_error
+            return self.status()
+
+    return FakeCredential
+
+
+def test_real_run_uses_the_signed_in_account(resources, state_file, monkeypatch):
+    handler = FakeHandler({"app": RUNNING})
+    built_with = []
 
     def fake_build(credential):
-        used.append(type(credential).__name__)
+        built_with.append(type(credential).__name__)
         return {VM_TYPE: handler}
 
-    monkeypatch.setattr(cli, "DefaultAzureCredential", FakeCredential)
+    monkeypatch.setattr(cli, "SignedInCredential", fake_credential(signed_in=True))
     monkeypatch.setattr(cli, "build_azure_handlers", fake_build)
 
     code = cli.main(
@@ -228,5 +241,106 @@ def test_real_run_builds_azure_handlers_from_default_credential(resources, state
     )
 
     assert code == cli.EXIT_OK
-    assert used == ["FakeCredential", "closed"]
+    assert built_with == ["FakeCredential"]
     assert handler.calls == [("disable", "app")]
+
+
+def test_real_run_stops_early_when_nobody_is_signed_in(resources, state_file, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "SignedInCredential", fake_credential(signed_in=False))
+
+    code = cli.main(
+        ["disable", "--resources", str(resources), "--state-file", str(state_file), "--yes"]
+    )
+
+    assert code == cli.EXIT_INVALID
+    assert "az login" in capsys.readouterr().err
+
+
+def test_login_reports_the_signed_in_account(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "SignedInCredential", fake_credential(signed_in=True))
+
+    code = cli.main(["login", "--data-dir", str(tmp_path)])
+
+    assert code == cli.EXIT_OK
+    assert "Signed in as me@example.com" in capsys.readouterr().out
+
+
+def test_login_failure_is_an_error_without_internal_detail(tmp_path, monkeypatch, capsys):
+    broken = fake_credential(signed_in=False, login_error=RuntimeError("AADSTS secret detail"))
+    monkeypatch.setattr(cli, "SignedInCredential", broken)
+
+    code = cli.main(["login", "--data-dir", str(tmp_path)])
+
+    error = capsys.readouterr().err
+    assert code == cli.EXIT_INVALID
+    assert "RuntimeError" in error
+    assert "AADSTS" not in error
+
+
+def test_dashboard_command_serves_the_demo_without_opening_a_browser(monkeypatch):
+    served = []
+    monkeypatch.setattr(
+        cli, "serve_dashboard", lambda services, **options: served.append((services, options))
+    )
+
+    code = cli.main(["dashboard", "--demo", "--no-open", "--port", "9001"])
+
+    ((services, options),) = served
+    assert code == cli.EXIT_OK
+    assert options == {"port": 9001, "open_browser": False}
+    assert services.demo is True
+    assert services.auth.status().account == "demo@example.com"
+
+
+def test_devui_command_serves_only_the_demo_workflow_locked_down(monkeypatch, capsys):
+    served = []
+    monkeypatch.setattr(cli, "_load_devui", lambda: lambda **options: served.append(options))
+    azure = []
+    monkeypatch.setattr(cli, "build_azure_handlers", azure.append)
+
+    code = cli.main(["devui", "--port", "9002"])
+
+    (options,) = served
+    assert code == cli.EXIT_OK
+    assert options["auth_enabled"] is True
+    assert options["mode"] == "user"
+    assert options["auth_token"] in capsys.readouterr().out
+    assert options["port"] == 9002
+    assert next(iter(options["entities"][0].executors)) == "load_targets"
+    assert azure == []
+
+
+def test_command_line_runs_also_accept_non_interactive_identities(
+    resources, state_file, monkeypatch
+):
+    credential_class = fake_credential(signed_in=True)
+    monkeypatch.setattr(cli, "SignedInCredential", credential_class)
+    monkeypatch.setattr(
+        cli, "build_azure_handlers", lambda _: {VM_TYPE: FakeHandler({"app": RUNNING})}
+    )
+
+    cli.main(["disable", "--resources", str(resources), "--state-file", str(state_file), "--yes"])
+
+    assert credential_class.built_with[-1]["cli_factory"] is cli.DefaultAzureCredential
+
+
+def test_state_defaults_to_the_per_user_folder(resources, tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "default_data_dir", lambda: tmp_path / "per-user")
+    handler = FakeHandler({"app": RUNNING})
+
+    code = run(handler, "disable", "--resources", resources, "--yes")
+
+    assert code == cli.EXIT_OK
+    assert (tmp_path / "per-user" / "state.json").exists()
+
+
+def test_devui_command_explains_how_to_install_it_when_missing(tmp_path, monkeypatch, capsys):
+    def missing():
+        raise cli.ConfigError("DevUI is not installed. Install it with `uv sync --extra devui`.")
+
+    monkeypatch.setattr(cli, "_load_devui", missing)
+
+    code = cli.main(["devui"])
+
+    assert code == cli.EXIT_INVALID
+    assert "uv sync --extra devui" in capsys.readouterr().err

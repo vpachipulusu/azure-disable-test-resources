@@ -1,26 +1,40 @@
 """Command-line entry point.
 
+weekend-saver dashboard [--demo] [--port N] [--no-open]
+weekend-saver login
 weekend-saver disable --resources resources.yaml [--dry-run] [--yes]
 weekend-saver enable  --resources resources.yaml [--dry-run] [--yes] [--ignore-prior-state]
 weekend-saver resume  --checkpoint-dir DIR (--approve | --reject)
+weekend-saver devui   [--demo]
 """
 
 import argparse
 import asyncio
 import logging
 import os
+import secrets
 import sys
-from collections.abc import Mapping, Sequence
+import tempfile
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import TextIO
+from typing import Any, TextIO
 
 from agent_framework import FileCheckpointStorage
 from azure.identity import DefaultAzureCredential
 
+from weekend_saver.auth import AUTH_RECORD_FILE, SignedInCredential
 from weekend_saver.azure_handlers import build_azure_handlers
 from weekend_saver.config import load_resource_specs
+from weekend_saver.dashboard.demo import demo_handlers
+from weekend_saver.dashboard.server import build_services
+from weekend_saver.dashboard.server import serve as serve_dashboard
 from weekend_saver.errors import ApprovalUnavailableError, ConfigError
-from weekend_saver.executors import DEFAULT_VERIFY_ATTEMPTS, DEFAULT_VERIFY_INTERVAL_SECONDS
+from weekend_saver.executors import (
+    DEFAULT_VERIFY_ATTEMPTS,
+    DEFAULT_VERIFY_INTERVAL_SECONDS,
+    describe_error,
+)
+from weekend_saver.files import default_data_dir, ensure_private_dir
 from weekend_saver.handlers import ResourceHandler
 from weekend_saver.models import (
     CHECKPOINT_TYPES,
@@ -43,9 +57,13 @@ EXIT_FAILED = 1
 EXIT_INVALID = 2
 EXIT_AWAITING_APPROVAL = 3
 
-DEFAULT_STATE_FILE = Path(".weekend-saver") / "state.json"
+DEFAULT_DASHBOARD_PORT = 8765
+DEFAULT_DEVUI_PORT = 8080
 WEBHOOK_ENV_VAR = "WEEKEND_SAVER_WEBHOOK_URL"
 RESUME = "resume"
+DASHBOARD = "dashboard"
+LOGIN = "login"
+DEVUI = "devui"
 
 VERIFY_ATTEMPTS = DEFAULT_VERIFY_ATTEMPTS
 VERIFY_INTERVAL_SECONDS = DEFAULT_VERIFY_INTERVAL_SECONDS
@@ -63,6 +81,8 @@ def main(
         # Only this tool's logger: SDK debug output is noisy and full of request detail
         logging.getLogger("weekend_saver").setLevel(logging.DEBUG)
     try:
+        if args.command in _LOCAL_COMMANDS:
+            return _LOCAL_COMMANDS[args.command](args)
         report = asyncio.run(_dispatch(args, handlers))
     except ApprovalUnavailableError:
         return _approval_unavailable(args.checkpoint_dir)
@@ -82,8 +102,8 @@ def _parser() -> argparse.ArgumentParser:
     common.add_argument(
         "--state-file",
         type=Path,
-        default=DEFAULT_STATE_FILE,
-        help="where to remember which resources were disabled (default: %(default)s)",
+        help="where to remember which resources were disabled "
+        "(default: state.json in your per-user weekend-saver folder)",
     )
     common.add_argument(
         "--checkpoint-dir",
@@ -127,7 +147,106 @@ def _parser() -> argparse.ArgumentParser:
     decision = resume.add_mutually_exclusive_group(required=True)
     decision.add_argument("--approve", dest="decision", action="store_const", const=True)
     decision.add_argument("--reject", dest="decision", action="store_const", const=False)
+
+    verbose = argparse.ArgumentParser(add_help=False)
+    verbose.add_argument("-v", "--verbose", action="store_true", help="log debug detail")
+    data = argparse.ArgumentParser(add_help=False)
+    data.add_argument(
+        "--data-dir",
+        type=Path,
+        help="folder for the selection, state, schedule, run history and sign-in record "
+        "(default: your per-user weekend-saver folder)",
+    )
+
+    dashboard = commands.add_parser(
+        DASHBOARD, parents=[verbose, data], help="open the local web dashboard"
+    )
+    dashboard.add_argument(
+        "--demo", action="store_true", help="use made-up resources instead of signing in to Azure"
+    )
+    dashboard.add_argument(
+        "--resources",
+        type=Path,
+        help="YAML file for the selection (default: resources.yaml in the data folder)",
+    )
+    dashboard.add_argument("--port", type=int, default=DEFAULT_DASHBOARD_PORT)
+    dashboard.add_argument(
+        "--no-open", action="store_true", help="print the link instead of opening a browser"
+    )
+    commands.add_parser(LOGIN, parents=[verbose, data], help="sign in to Azure through a browser")
+    devui = commands.add_parser(
+        DEVUI,
+        parents=[verbose],
+        help="inspect the workflow in Agent Framework DevUI (made-up resources only)",
+    )
+    devui.add_argument("--port", type=int, default=DEFAULT_DEVUI_PORT)
     return parser
+
+
+def _data_dir(args: argparse.Namespace) -> Path:
+    return args.data_dir or default_data_dir()
+
+
+def _run_dashboard(args: argparse.Namespace) -> int:
+    services = build_services(
+        resources_path=args.resources,
+        data_dir=_data_dir(args),
+        demo=args.demo,
+        notifier=_notifier_from_environment(),
+    )
+    serve_dashboard(services, port=args.port, open_browser=not args.no_open)
+    return EXIT_OK
+
+
+def _run_login(args: argparse.Namespace) -> int:
+    credential = SignedInCredential(ensure_private_dir(_data_dir(args)) / AUTH_RECORD_FILE)
+    try:
+        status = credential.login()
+    except Exception as exc:
+        logger.debug("Browser sign-in failed", exc_info=True)
+        raise ConfigError(
+            f"Sign-in did not complete ({describe_error(exc)}). Try `az login` instead."
+        ) from exc
+    if not status.signed_in:
+        raise ConfigError("Sign-in finished but no Azure token could be obtained.")
+    _emit(sys.stdout, f"Signed in as {status.account or 'unknown account'}.")
+    return EXIT_OK
+
+
+def _run_devui(args: argparse.Namespace) -> int:
+    serve_devui = _load_devui()
+    # DevUI is a development sample whose input form can ask for pre-approved runs on any
+    # resource, so it only ever gets the made-up resources, never a real sign-in.
+    state_dir = Path(tempfile.mkdtemp(prefix="weekend-saver-devui-"))
+    workflow = build_workflow(demo_handlers(), JsonFileStateStore(state_dir / "state.json"))
+    token = secrets.token_urlsafe(24)
+    _emit(sys.stdout, f"DevUI with made-up resources. Sign-in token for its page: {token}")
+    serve_devui(
+        entities=[workflow],
+        port=args.port,
+        auto_open=True,
+        mode="user",
+        auth_enabled=True,
+        auth_token=token,
+    )
+    return EXIT_OK
+
+
+def _load_devui() -> Callable[..., Any]:
+    try:
+        from agent_framework.devui import serve
+    except ImportError as exc:
+        raise ConfigError(
+            "DevUI is not installed. Install the optional extra with `uv sync --extra devui`."
+        ) from exc
+    return serve
+
+
+_LOCAL_COMMANDS: Mapping[str, Callable[[argparse.Namespace], int]] = {
+    DASHBOARD: _run_dashboard,
+    LOGIN: _run_login,
+    DEVUI: _run_devui,
+}
 
 
 async def _dispatch(
@@ -141,8 +260,17 @@ async def _dispatch(
 
     if handlers is not None:
         return await _execute(args, request, handlers, notifier)
-    with DefaultAzureCredential() as credential:
-        return await _execute(args, request, build_azure_handlers(credential), notifier)
+    # The command line may run unattended, so besides `az login` it also accepts managed
+    # identities, workload identity and service-principal environment variables.
+    credential = SignedInCredential(
+        default_data_dir() / AUTH_RECORD_FILE,
+        cli_factory=DefaultAzureCredential,
+        primary_name="default credential chain",
+    )
+    status = await asyncio.to_thread(credential.status)
+    if not status.signed_in:
+        raise ConfigError("Not signed in to Azure. Run `az login` or `weekend-saver login`.")
+    return await _execute(args, request, build_azure_handlers(credential), notifier)
 
 
 async def _execute(
@@ -154,7 +282,7 @@ async def _execute(
     checkpoints = _checkpoint_storage(args.checkpoint_dir)
     workflow = build_workflow(
         handlers,
-        JsonFileStateStore(args.state_file),
+        JsonFileStateStore(args.state_file or default_data_dir() / "state.json"),
         notifier=notifier,
         checkpoint_storage=checkpoints,
         verify_attempts=VERIFY_ATTEMPTS,
